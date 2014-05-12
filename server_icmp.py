@@ -6,9 +6,6 @@ from Crypto.Cipher import AES
 
 
 class ServerICMP:
-
-
-
 	ICMP_ECHO_REQUEST = 8
 	def __init__	(self):
 		ip = raw_input("Enter the destination IP: ")
@@ -22,20 +19,17 @@ class ServerICMP:
 					else:
 							textocifrado=self.cifrar(texto)
 							self.do_one(ip,delay,textocifrado)
-							print("Enviando paquete ICMP....\n")
+							print "Enviando paquete ICMP....\n"
 							self.startlistening()
+		elif len(sys.argv)==2:
+			chunk=self.cut_archive(sys.argv[1])
+			for i in range(len(chunk)):
+				enctext=self.cifrar(chunk[i])
+				self.do_one(ip,delay,enctext)
+				print "Enviando paquete ICMP "+str(i)+" de "+str(len(chunk))+" totales."
+			self.startlistening()
 		else:
-			#try:
-			#	f=open(argv[1],'rb')
-			#	while 1:
-			#		contenido=f.read()
-			#	textocifrado=self.cifrar(contenido)
-			#	for i in range(0..len(textocifrado))
-					
-					#do_one(ip,delay,)
-			#except IOError as e:
-			#	print "I/O error({0}): {1}".format(e.errno, e.strerror)
-			pass	
+			pass
 			
 	
 	def checksum(self,source_string):
@@ -61,10 +55,22 @@ class ServerICMP:
 		answer = answer >> 8 | (answer << 8 & 0xff00)
 		return answer
 	 
-	 
+	def cut_archive(self,archivo):
+		try:
+			image=open(archivo,'rb').read()
+			chunk=[]
+			interval=1500-32
+			for n in range(0,len(image),interval):
+				chunk.append(image[n:n + interval])
+			return chunk
+		except IOError as e:
+			print "I/O error({0}): {1}".format(e.errno, e.strerror)
+	
+	
+	
 	def send_one_ping(self,my_socket, dest_addr, ID, onlydata):
 		#global ICMP_ECHO_REQUEST
-		data = "$$"+onlydata
+		data = "@@"+onlydata
 		dest_addr  =  socket.gethostbyname(dest_addr)
 		my_checksum = 0
 		header = struct.pack("bbHHh", self.ICMP_ECHO_REQUEST, 0, my_checksum, ID, 1)
@@ -143,23 +149,16 @@ class ServerICMP:
 			print "A la escucha....."
 			while 1:
 					data = s.recvfrom(65565)
-					d1 = str(data[0])
-					d2 = str(data[1])
+					print data
+					#d1 = str(data[0])
+					#d2 = str(data[1])
 
 					#print "Imprimiendo d1 y d2"+d1
-					data1 = re.search('$$(.*)', d1)
-					print data1
-					datapart = data1.group(0)
-					print datapart
-					#writer(datapart)
-					#command = data1.group(0)
-					#cmd = command[2:]
-					#ip = d2[2:-5]
-					#print command
-					#print ip
-					#print data
-					#print reader()
-	#thread.start_new_thread(startsniffing,())
+					#data1 = re.search('!!(.*)\'', d1)
+					#print data1
+					#datapart = data1.group(0)
+					#print datapart 
+					#pass
 	
 	
 servericmp=ServerICMP()
