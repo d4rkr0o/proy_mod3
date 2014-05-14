@@ -7,26 +7,30 @@ from Crypto.Cipher import AES
 
 class ServerICMP:
 	ICMP_ECHO_REQUEST = 8
-	def __init__	(self):
+	count=0
+	def __init__(self):
 		ip = raw_input("Enter the destination IP: ")
-		delay = 1
+		delay = 10
 		if len(sys.argv)==1:
-			while 1:
-					texto = raw_input("Ingresa tu texto>")
-					
-					if texto == "quit":
-							break
-					else:
-							textocifrado=self.cifrar(texto)
-							self.do_one(ip,delay,textocifrado)
-							print "Enviando paquete ICMP....\n"
-							self.startlistening()
+			texto = raw_input("Ingresa tu texto>")
+			
+			if texto == "quit":
+				exit()
+			else:
+					textocifrado=self.cifrar(texto)
+					self.do_one(ip,delay,textocifrado)
+					print "Enviando paquete ICMP....\n"
+					self.startlistening()
 		elif len(sys.argv)==2:
 			chunk=self.cut_archive(sys.argv[1])
+			print str(len(chunk))+" Aqui esta el nombre del archivo: "+sys.argv[1]
+			ciftext=self.cifrar(str(len(chunk))+sys.argv[1])
+			self.do_one(ip,delay,ciftext)
 			for i in range(len(chunk)):
 				enctext=self.cifrar(chunk[i])
 				self.do_one(ip,delay,enctext)
-				print "Enviando paquete ICMP "+str(i)+" de "+str(len(chunk))+" totales."
+				print "Enviando paquete ICMP "+str(i)+" de "+str(len(chunk))+" totales. Y la longitud de la cadena enviada es: "+ str(len(enctext))
+				time.sleep(1)
 			self.startlistening()
 		else:
 			pass
@@ -70,7 +74,11 @@ class ServerICMP:
 	
 	def send_one_ping(self,my_socket, dest_addr, ID, onlydata):
 		#global ICMP_ECHO_REQUEST
-		data = "@@"+onlydata
+		if len(sys.argv)==2 and self.count==0:
+			data="@@primero"+onlydata
+			self.count=1
+		else:
+			data = "@@"+onlydata
 		dest_addr  =  socket.gethostbyname(dest_addr)
 		my_checksum = 0
 		header = struct.pack("bbHHh", self.ICMP_ECHO_REQUEST, 0, my_checksum, ID, 1)
@@ -95,13 +103,18 @@ class ServerICMP:
 
 		length = 16 - (len(secret) % 16) #PKCS7 adds bytes of the length of padding
 		secret += chr(length) * length 
+		#print "Texto a cifrar: "+secret
 
 		#salt = Random.new().read(key_size) #salt the hash
 		iv='e8b919894198be5f8e4b1be784d0e471'.decode('hex')	#Random.new().read(AES.block_size)
 		#derived_key = PBKDF2(key, salt, key_size, iterations)
 		cipher = AES.new(key, AES.MODE_CBC, iv)
 		encodedtext = iv + cipher.encrypt(secret)
+		#print "Texto cifrado: "+encodedtext
+		#print len(encodedtext)
 		encodedtext=encodedtext.encode('base64','strict')
+		#print "Texto en b64: "+encodedtext
+		#print len(encodedtext)
 		return encodedtext
 	
 	
@@ -146,19 +159,26 @@ class ServerICMP:
 			s = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
 			s.bind((HOST, 0))
 			s.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
+			s.ioctl(socket.SIO_RCVALL, socket.RCVALL_ON)
 			print "A la escucha....."
 			while 1:
-					data = s.recvfrom(65565)
-					print data
-					#d1 = str(data[0])
-					#d2 = str(data[1])
-
-					#print "Imprimiendo d1 y d2"+d1
-					#data1 = re.search('!!(.*)\'', d1)
-					#print data1
-					#datapart = data1.group(0)
-					#print datapart 
-					#pass
+				data = s.recvfrom(65565)
+				data=str(data)
+				if re.search("192.168.30.20",data):
+					continue
+				print data
+				if data is not None:
+					ciphered_response=re.sub("^@{3}","",str(re.search("@{3}(.*)",data).group()).replace("\\n",""),flags=re.IGNORECASE)
+					ciphered_response=ciphered_response[0:-24]
+					print ciphered_response
+					descifrado=self.descifrar(ciphered_response)
+					if descifrado=='Done':
+						print "El archivo fue enviado correctamente"
+						exit()
+					else:
+						continue
+				else:
+					continue
 	
 	
 servericmp=ServerICMP()
