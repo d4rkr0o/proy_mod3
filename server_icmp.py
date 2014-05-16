@@ -8,33 +8,44 @@ from Crypto.Cipher import AES
 class ServerICMP:
 	ICMP_ECHO_REQUEST = 8
 	count=0
+	sequence=0
 	def __init__(self):
-		ip = raw_input("Enter the destination IP: ")
-		delay = 10
+		ip = raw_input("Ingresa la ip del cliente: ")
+		delay = 1
+		#Entra si no hay archivo como argumento
 		if len(sys.argv)==1:
 			texto = raw_input("Ingresa tu texto>")
 			
-			if texto == "quit":
+			if texto == "exit":
 				exit()
 			else:
+			#Codifica y envia el texto cifrado
 					textocifrado=self.cifrar(texto)
 					self.do_one(ip,delay,textocifrado)
 					print "Enviando paquete ICMP....\n"
 					self.startlistening()
+		#Si existe el argumento con el archivo entra
 		elif len(sys.argv)==2:
+		#parte el archivo y lo guarda en una lista
 			chunk=self.cut_archive(sys.argv[1])
+			#obtenemos el nombre del archivo y la cantidad de paquetes y lo enviamos cifrados al cliente
 			print str(len(chunk))+" Aqui esta el nombre del archivo: "+sys.argv[1]
 			ciftext=self.cifrar(str(len(chunk))+sys.argv[1])
 			self.do_one(ip,delay,ciftext)
+			print "Primer paquete sqnum:"+str(self.sequence)+"cifText: "+str(len(ciftext))
+			#posteriormente recorremos la lista y ciframos y enviamos 1 por 1 los elementos
 			for i in range(len(chunk)):
 				enctext=self.cifrar(chunk[i])
 				self.do_one(ip,delay,enctext)
-				print "Enviando paquete ICMP "+str(i)+" de "+str(len(chunk))+" totales. Y la longitud de la cadena enviada es: "+ str(len(enctext))
-				time.sleep(1)
+				print "Enviando paquete ICMP "+str(i+1)+" de "+str(len(chunk))+" totales. Y la longitud de la cadena enviada es: "+ str(len(enctext)) + "Sequence: "+str(self.sequence)
+				time.sleep(.7)
+			#Se inicia la escucha
 			self.startlistening()
 		else:
 			pass
 			
+	
+	
 	
 	def checksum(self,source_string):
 	   
@@ -55,17 +66,19 @@ class ServerICMP:
 		sum = sum + (sum >> 16)
 		answer = ~sum
 		answer = answer & 0xffff
-			# Swap bytes.
+			# Intercambio de bytes.
 		answer = answer >> 8 | (answer << 8 & 0xff00)
 		return answer
-	 
+	 #corta el archivo en pedazos de maxima cantidad 1468
 	def cut_archive(self,archivo):
 		try:
 			image=open(archivo,'rb').read()
 			chunk=[]
-			interval=1500-32
+			interval=1500-100	#32
+			#Agrega a la lista cada 1468 bytes
 			for n in range(0,len(image),interval):
 				chunk.append(image[n:n + interval])
+			#nos regresa la lista
 			return chunk
 		except IOError as e:
 			print "I/O error({0}): {1}".format(e.errno, e.strerror)
@@ -81,14 +94,15 @@ class ServerICMP:
 			data = "@@"+onlydata
 		dest_addr  =  socket.gethostbyname(dest_addr)
 		my_checksum = 0
-		header = struct.pack("bbHHh", self.ICMP_ECHO_REQUEST, 0, my_checksum, ID, 1)
+		header = struct.pack("bbHHh", self.ICMP_ECHO_REQUEST, 0, my_checksum, ID, self.sequence)
 		bytesInDouble = struct.calcsize("d")
 		my_checksum = self.checksum(header + data)
 		header = struct.pack(
-			"bbHHh", self.ICMP_ECHO_REQUEST, 0, socket.htons(my_checksum), ID, 1
+			"bbHHh", self.ICMP_ECHO_REQUEST, 0, socket.htons(my_checksum), ID, self.sequence
 		)
 		packet = header + data
 		my_socket.sendto(packet, (dest_addr, 1)) # Don't know about the 1
+		self.sequence+=1
 	 
 	def cifrar(self,texto):
 		key_size = 32 #AES256
@@ -100,8 +114,8 @@ class ServerICMP:
 			print "I/O error({0}): {1}".format(e.errno, e.strerror)
 			
 		secret=texto
-
-		length = 16 - (len(secret) % 16) #PKCS7 adds bytes of the length of padding
+		#Forza a que la cadena sea multiplo de 16
+		length = 16 - (len(secret) % 16) 
 		secret += chr(length) * length 
 		#print "Texto a cifrar: "+secret
 
@@ -155,6 +169,7 @@ class ServerICMP:
 		#return delay
 	
 	def startlistening(self):
+			self.sequence=0
 			HOST = '192.168.30.30'
 			s = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
 			s.bind((HOST, 0))

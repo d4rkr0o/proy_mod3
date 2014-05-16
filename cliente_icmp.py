@@ -1,4 +1,4 @@
-import os, sys, socket, struct, select, time , threading ,re, base64
+import os, sys, socket, struct, select, time , threading ,re, base64, collections
 from Crypto.Cipher import AES
 
 class ClientICMP:
@@ -11,8 +11,10 @@ class ClientICMP:
 	nombrearch=""
 	count=0
 	count2=0
+	temporal={}
 
 	def __init__(self):
+		
 		HOST = raw_input("Ingresa la ip para hacer el bind: ")
 		s = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)#Creacion socket
 		s.bind((HOST, 0))
@@ -20,80 +22,106 @@ class ClientICMP:
 		s.ioctl(socket.SIO_RCVALL, socket.RCVALL_ON)  #Se enciende modo promiscuo en la tarjeta de red
 		print "Cliente a la escucha......"
 		while 1:
-			print "A la escucha..."
-			self.count2=0
+			
 			data=""
-			data = s.recvfrom(65565)
-			data=str(data)
-			print "nombrearch:"+self.nombrearch
-			print "Llevamos la cuenta: "+str(self.count)
-			if re.search("@{2}[a-z]{7}(.*)",data) and self.count==0:
-				self.reconstruccion=""
-				data1=re.sub("^@{2}[a-z]{7}","",str(re.search("@{2}[a-z]{7}(.*)",data).group()).replace("\\n",""),flags=re.IGNORECASE)
-				if re.search("192.168.30.20",data1):
-					continue
-				print "Primer data 1:"+data1
-				data1=data1[0:-24]
-				descifrado=self.descifrar(data1)
-				print re.search("\\d+",descifrado).group()
-				print re.search("\.(.*)",descifrado).group()
-				cantpaquetes=re.search("\\d+",descifrado).group()
-				self.nombrearch=re.search("\.(.*)",descifrado).group()
-				#time.sleep(100)
-				self.count=1
-				data1=""
+			data1=""
+			nombrearch=""
+			while 1:
+				seq=0
+				print "A la escucha..."
 				
-			elif self.nombrearch!="" and self.count==1:
-				print "Dentro de cuando archivo no esta vacio y count es 1"
-				data1= re.sub("^@{2}","",str(re.search("@{2}(.*)",data).group()).replace("\\n",""),flags=re.IGNORECASE)
-				if re.search("192.168.30.20(.*)",data1) or re.search("^[a-z]{7}(.*)",data1):
-					continue
-				#print data1
-				data1=data1[0:-24]
-				#print data1
-				#print "Longitud de cadena b64: "+str(len(data1))
+				data=""
+				data = s.recvfrom(65565)
 				
-				#print data1
-				#print self.descifrar(data1)
-				self.reconstruccion+=self.descifrar(data1)
-				#print self.reconstruccion
-				print "\n\n\n\n\n\n\nAqui esta reconstruccion y cant paquetes"+str(self.cut_string(self.reconstruccion))+"..."+str(cantpaquetes)
-				if str(self.cut_string(self.reconstruccion))==str(cantpaquetes):
-					try:
-						self.archivoFinal=open(self.nombrearch,'wb')
-						self.archivoFinal.write(self.reconstruccion)
-						self.archivoFinal.close()
-					except IOError as e:
-						print "I/O error({0}): {1}".format(e.errno, e.strerror)
+				#print "\n\nLa secuencia de este paquete es: "+str(self.parse_packet(data))
+				seq=int(self.parse_packet(data))
+				data=str(data)
+				#Entra si hace match con @@primero y la cuenta esta en 0
+				if re.search("@{2}[a-z]{7}(.*)",data) and self.count==0:
+					self.reconstruccion=""
+					#busca la cadena @@primero esto nos indica que es el primer paquete y este contiene nombre de archivo y cantidad de paquetes
+					#dicha peticion tambien se encuentra cifrada
+					data1=re.sub("^@{2}[a-z]{7}","",str(re.search("@{2}[a-z]{7}(.*)",data).group()).replace("\\n",""),flags=re.IGNORECASE)
+					#Si la cadena contiene dicho patron simplemente continua al siguiente ciclo
+					if re.search("192.168.30.20",data1):
+						continue
+					
+					data1=data1[0:-24]
+					descifrado=self.descifrar(data1)
+					#Busca las cadenas mostradas y las agrupa para utilizarlas posteriormente, nombre de archivo y cantidad de paquetes
+					print re.search("\\d+",descifrado).group()
+					print re.search("\.(.*)",descifrado).group()
+					cantpaquetes=re.search("\\d+",descifrado).group()
+					self.nombrearch=re.search("\.(.*)",descifrado).group()
+					#time.sleep(10)
+					self.count=1
+					data1=""
+				#Entra cuando el nombre de archivo no esta vacio y la cuenta es 1	
+				elif self.nombrearch!="" and self.count==1:
+					#print "Dentro de cuando archivo no esta vacio y count es 1"
+					data1= re.sub("^@{2}","",str(re.search("@{2}(.*)",data).group()).replace("\\n",""),flags=re.IGNORECASE)
+					if re.search("192.168.30.20(.*)",data1) or re.search("^[a-z]{7}(.*)",data1):
+						continue
+					else:
+						pass
+					
+					data1=data1[0:-24]				
+					
+					if  0 < seq <= int(cantpaquetes):
+						self.temporal[seq]=str(self.descifrar(data1))
+						
+					
+					print "Len temporal "+str(len(self.temporal))
+					#Si la longitud que devuelve el metodo de cortar cadena y la cantidad de paquetes es la misma  
+					if str(len(self.temporal))==str(int(cantpaquetes)):
+						try:
+						#Esta listo para escribir en el archivo	
+							for key in sorted(self.temporal):
+								self.reconstruccion+=str(self.temporal[key])
+							self.archivoFinal=open(self.nombrearch,'wb')
+							self.archivoFinal.write(self.reconstruccion)
+							self.archivoFinal.close()
+							self.temporal={}
+						except IOError as e:
+							print "I/O error({0}): {1}".format(e.errno, e.strerror)
+						#Se trata de controlar el flujo de envio
+						time.sleep(2)
+						#Envia un paquete icmp con la cadena Done para que el servidor sepa que termino correctamente
+						self.do_one(self.ip,self.wa,self.cifrar('Done'))
+						data=""
+						self.count=0
+						#self.nombrearch=""
+						break
+					else:
+						continue
+				#Entra aqui cuando el nombre del archivo este vacio y contador 2 sea igual a 0
+				#Es decir cuando nuestro envio haya sido solo texto ingresado de la linea de comandos
+				elif self.count2==0 and self.nombrearch=="":
+					#busca la cadena @@ en data para posteriormente sustituirlo por espacios
+					data1= re.sub("^@{2}","",str(re.search("@{2}(.*)",data).group()).replace("\\n",""), flags=re.IGNORECASE)
+					#Elimina lo que no nos interesa de la cadena data1
+					data1=data1[0:-24]
+					#Muestra el descifrado
+					print "Descifrado: "+self.descifrar(data1)
 					time.sleep(2)
+					#Envia un paquete icmp al server con la cadena done cifrada
 					self.do_one(self.ip,self.wa,self.cifrar('Done'))
-					print "Dentro de if archivo"
 					data=""
-					self.count=0
-					self.nombrearch=""
-					continue
+					data1=""
+					#print data
+					self.count2=1
+					break
 				else:
 					continue
-			#Entra aqui cuando el nombre del archivo este vacio y contador 2 sea igual a 0
-			elif self.nombrearch=="" and self.count2==0:
-				data1= re.sub("^@{2}","",str(re.search("@{2}(.*)",data).group()).replace("\\n",""), flags=re.IGNORECASE)
-				data1=data1[0:-24]
-				#Muestra la cadena codificada
-				print "Raw data: "+data1
-				#Muestra el descifrado
-				print "Descifrado: "+self.descifrar(data1)
-				time.sleep(10)
-				self.do_one(self.ip,self.wa,self.cifrar('Done'))
-				print "Cadena cifrada done: "+self.cifrar('Done')
-				print len(self.cifrar('Done'))
-				data=""
-				#print data
-				self.count2=1
-				continue
-			else:
-				continue
 		s.ioctl(socket.SIO_RCVALL, socket.RCVALL_OFF)
-			
+	
+	def parse_packet(self,datos):
+		recpacket, addr=datos
+		header=recpacket[20:28]
+		type, code, checksum, id, seq= struct.unpack("bbHHh", header)
+		print seq
+		return seq
+		
 	def checksum(self,source_string):
 		sum = 0
 		countTo = (len(source_string)/2)*2
@@ -112,7 +140,7 @@ class ClientICMP:
 		sum = sum + (sum >> 16)
 		answer = ~sum
 		answer = answer & 0xffff
-			# Swap bytes.
+			# Intercambio de bytes.
 		answer = answer >> 8 | (answer << 8 & 0xff00)
 		return answer
 		
@@ -160,13 +188,13 @@ class ClientICMP:
 		except IOError as e:
 			print "I/O error({0}): {1}".format(e.errno, e.strerror)
 			
-		print key
+		#print key
 		iv='e8b919894198be5f8e4b1be784d0e471'.decode('hex')
 		cipher = AES.new(key, AES.MODE_CBC, iv)
-		print len(textocifrado)
+		#print len(textocifrado)
 		encodedtext=textocifrado.decode('base64','strict')
-		print len(encodedtext)
-		print encodedtext
+		#print len(encodedtext)
+		#print encodedtext
 		decodedtext = str(cipher.decrypt(encodedtext))
 		decodedtext=decodedtext[16:-ord(decodedtext[-1])] #quita el iv y le recorrido
 		#print decodedtext
@@ -193,7 +221,7 @@ class ClientICMP:
 		#corta la cadena para saber cuantos pedazos tiene y verificar que envio todos los pedazos
 	def cut_string(self,cadenita):
 		chunk=[]
-		#tamaño maximo de datos para viajar en el paquete icmp
+		#tamanio maximo de datos para viajar en el paquete icmp
 		interval=1500-32
 		for n in range(0,len(cadenita),interval):
 			chunk.append(cadenita[n:n + interval])
